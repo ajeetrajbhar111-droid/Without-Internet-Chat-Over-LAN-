@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>LAN Chat</title>
+
+<style>
+body { margin:0; font-family: Arial; background:#ece5dd; }
+
+#login {
+    display:flex; justify-content:center; align-items:center;
+    height:100vh; flex-direction:column;
+}
+
+#chat {
+    display:none; height:100vh; flex-direction:column;
+}
+
+.users-panel {
+    background:#075e54; color:white; padding:10px;
+}
+
+.messages {
+    flex:1; overflow-y:auto; padding:10px;
+    display:flex; flex-direction:column;
+}
+
+.message {
+    padding:8px; border-radius:8px;
+    margin:5px; max-width:60%;
+}
+
+.my-message { background:#dcf8c6; align-self:flex-end; }
+.other-message { background:white; align-self:flex-start; }
+
+.input-area {
+    display:flex; padding:10px;
+}
+
+.input-area input {
+    flex:1; padding:8px;
+}
+</style>
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="login">
+    <h2>Login</h2>
+    <input id="username" placeholder="Username">
+    <input id="password" type="password" placeholder="Password">
+    <br>
+    <button onclick="login()">Login</button>
+    <button onclick="register()">Register</button>
+</div>
+
+<!-- CHAT -->
+<div id="chat">
+
+    <div class="users-panel">
+        Online Users:
+        <ul id="usersList"></ul>
+    </div>
+
+    <div id="typing"></div>
+<div id="messages" class="messages"></div>
+
+    <div id="messages" class="messages"></div>
+
+    <div class="input-area">
+        <input id="msg" placeholder="Type message..." oninput="typing()">
+        <button onclick="sendMessage()">Send</button>
+        <button onclick="clearChat()">Clear</button>
+    </div>
+
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+
+<script>
+const socket = io();
+
+let username = "";
+let selectedUser = null;
+
+// ================= LOGIN =================
+async function login() {
+
+    const user = document.getElementById("username").value;
+    const pass = document.getElementById("password").value;
+
+    const res = await fetch("/login", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ username:user, password:pass })
+    });
+
+    function typing(){
+    socket.emit("typing");
+}
+
+    document.getElementById("msg").addEventListener("keypress", function(e){
+    if(e.key === "Enter"){
+        sendMessage();
+    }
+});
+
+    const text = await res.text();
+
+    if(text === "Login success"){
+        username = user;
+
+        document.getElementById("login").style.display = "none";
+        document.getElementById("chat").style.display = "flex";
+
+        socket.emit("user joined", username);
+    } else {
+        alert(text);
+    }
+}
+
+// ================= REGISTER =================
+async function register() {
+
+    const user = document.getElementById("username").value;
+    const pass = document.getElementById("password").value;
+
+    const res = await fetch("/register", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ username:user, password:pass })
+    });
+
+    alert(await res.text());
+}
+
+// ================= SEND MESSAGE =================
+function sendMessage(){
+
+    const msg = document.getElementById("msg").value;
+
+    if(!msg || !selectedUser){
+        alert("Select user first");
+        return;
+    }
+
+    socket.emit("private message", {
+        to: selectedUser,
+        message: msg
+    });
+
+    document.getElementById("msg").value = "";
+}
+
+// ================= USER LIST =================
+socket.on("update users", (users) => {
+
+    const list = document.getElementById("usersList");
+    list.innerHTML = "";
+
+    Object.entries(users).forEach(([id, name]) => {
+
+        if(name === username) return;
+
+        const li = document.createElement("li");
+        li.textContent = name;
+
+        li.onclick = () => {
+            selectedUser = id;
+
+            socket.emit("load private chat", name);
+
+            document.getElementById("messages").innerHTML = "";
+        };
+
+        list.appendChild(li);
+    });
+});
+
+// ================= RECEIVE MESSAGE =================
+socket.on("private message", addMessage);
+
+// ================= LOAD HISTORY =================
+socket.on("private history", (msgs) => {
+
+    const messagesDiv = document.getElementById("messages");
+    messagesDiv.innerHTML = "";
+
+    msgs.forEach(addMessage);
+});
+
+// ================= ADD MESSAGE =================
+function addMessage(data){
+
+    const div = document.createElement("div");
+    div.classList.add("message");
+
+    if(data.sender === username){
+        div.classList.add("my-message");
+    } else {
+        div.classList.add("other-message");
+    }
+
+    div.textContent = data.sender + ": " + data.message + " (" + data.time + ")";
+
+    document.getElementById("messages").appendChild(div);
+}
+
+// ================= CLEAR CHAT =================
+function clearChat(){
+
+    if(!selectedUser){
+        alert("Select user first");
+        return;
+    }
+
+    socket.emit("clear chat", selectedUser);
+}
+
+socket.on("chat cleared", () => {
+    document.getElementById("messages").innerHTML = "";
+    alert("Chat cleared");
+});
+
+</script>
+
+</body>
+</html>
